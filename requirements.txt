@@ -1,0 +1,7 @@
+streamlit
+pydantic>=2
+huggingface_hub
+python-dotenv
+python-docx
+reportlab
+pytest
