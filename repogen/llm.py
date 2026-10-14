@@ -1,17 +1,17 @@
 import os
 from dotenv import load_dotenv
-from huggingface_hub import InferenceClient
+from groq import Groq
 
 load_dotenv()
 
 
 def generate_text(system: str, prompt: str, max_tokens: int = 400) -> str:
-    token = os.getenv("HF_TOKEN")
-    if not token:
-        raise RuntimeError("HF_TOKEN is not set. Add it to .env or your host's secrets.")
-    model = os.getenv("HF_MODEL", "meta-llama/Llama-3.1-8B-Instruct")
+    key = os.getenv("GROQ_API_KEY")
+    if not key:
+        raise RuntimeError("GROQ_API_KEY is not set. Add it to .env or your host's secrets.")
+    model = os.getenv("LLM_MODEL", "llama-3.1-8b-instant")
 
-    client = InferenceClient(api_key=token)
+    client = Groq(api_key=key)
     response = client.chat.completions.create(
         model=model,
         messages=[
