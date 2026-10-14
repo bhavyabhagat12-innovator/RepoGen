@@ -1,0 +1,7 @@
+streamlit
+pydantic>=2
+groq
+python-dotenv
+python-docx
+reportlab
+pytest
