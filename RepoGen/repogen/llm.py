@@ -5,7 +5,7 @@ from groq import Groq
 load_dotenv()
 
 
-def generate_text(system: str, prompt: str, max_tokens: int = 400) -> str:
+def generate_text(system: str, prompt: str, max_tokens: int = 1200) -> str:
     key = os.getenv("GROQ_API_KEY")
     if not key:
         raise RuntimeError("GROQ_API_KEY is not set. Add it to .env or your host's secrets.")
