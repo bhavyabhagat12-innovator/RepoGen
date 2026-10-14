@@ -25,7 +25,7 @@ streamlit run app.py
 ```
 
 ## Live demo
-<add link after deployment>
+https://repogen-bbi12.streamlit.app/
 
 ## Roadmap
 - [ ] More report types (meeting minutes, internship, lab)
