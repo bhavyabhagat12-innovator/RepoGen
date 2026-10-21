@@ -5,22 +5,56 @@ from pydantic import ValidationError
 
 from repogen.exporters import to_docx, to_pdf
 from repogen.generator import generate_report
-from repogen.header import Header, prepare_logo
+from repogen.header import Header, HeaderLine, prepare_logo
 from repogen.schemas import EventInfo
 
 st.set_page_config(page_title="RepoGen", page_icon="📝", layout="centered")
 st.title("📝 RepoGen")
 st.caption("Fill in the event details and get a ready-to-edit report.")
 
+LINE_COLORS = ["#000000", "#C00000", "#000000", "#000000", "#000000", "#000000"]
+PRESETS = {
+    "100 - 200 words": (100, 200),
+    "200 - 300 words": (200, 300),
+    "300 - 500 words": (300, 500),
+    "500 - 800 words": (500, 800),
+    "800 - 1200 words": (800, 1200),
+}
+
 
 def show_header_preview(h: Header) -> None:
     with st.container(border=True):
-        st.caption("Header preview")
-        if h.logo_bytes:
-            st.image(h.logo_bytes, width=100)
-        for i, line in enumerate(h.lines):
-            text = html.escape(line)
-            st.markdown(f"**{text}**" if i == 0 else text)
+        st.caption("Header preview (repeats on every page)")
+        left, mid, right = st.columns([1, 4, 1])
+        if h.left_logo_bytes:
+            left.image(h.left_logo_bytes)
+        if h.right_logo_bytes:
+            right.image(h.right_logo_bytes)
+        for ln in h.lines:
+            weight = "700" if ln.bold else "400"
+            mid.markdown(
+                f"<div style='text-align:center;font-weight:{weight};color:{ln.color};"
+                f"font-size:{ln.size}px;line-height:1.3'>{html.escape(ln.text)}</div>",
+                unsafe_allow_html=True,
+            )
+        if h.strip:
+            for col, item in zip(st.columns(len(h.strip)), h.strip):
+                col.markdown(
+                    f"<div style='text-align:center;font-weight:700;color:{h.strip_color};"
+                    f"border-top:1px solid #888;border-bottom:1px solid #888'>{html.escape(item)}</div>",
+                    unsafe_allow_html=True,
+                )
+
+
+def logo_input(label: str, key: str):
+    f = st.file_uploader(label, type=["png", "jpg", "jpeg"], key=key)
+    if f is None:
+        return None
+    try:
+        return prepare_logo(f.getvalue())
+    except Exception:
+        st.error("Could not read that image. Please upload a valid PNG or JPG.")
+        return None
 
 
 # ---------------- Header section ----------------
@@ -40,24 +74,38 @@ choice = st.radio(
 header = None
 
 if choice == "Create new header":
-    lines_text = st.text_area(
-        "Header text (one line per row; the first line is shown bold as the title)",
-        placeholder="ABC College of Engineering\nDepartment of AI and Data Science\nPune, Maharashtra",
-        height=120,
-    )
-    logo_file = st.file_uploader("Logo or picture (optional)", type=["png", "jpg", "jpeg"])
+    c1, c2 = st.columns(2)
+    with c1:
+        left_b64 = logo_input("Left logo (optional)", "left_logo")
+    with c2:
+        right_b64 = logo_input("Right logo (optional)", "right_logo")
+
+    n_lines = int(st.number_input("Number of text lines", min_value=0, max_value=6, value=3))
+    lines = []
+    for i in range(n_lines):
+        a, b, c, d = st.columns([5, 1.4, 1.2, 1])
+        text = a.text_input(f"Line {i + 1}", key=f"hl_text_{i}")
+        size = b.number_input("Size", min_value=8, max_value=28, value=12, key=f"hl_size_{i}")
+        color = c.color_picker("Color", LINE_COLORS[i], key=f"hl_color_{i}")
+        bold = d.checkbox("Bold", value=True, key=f"hl_bold_{i}")
+        if text.strip():
+            lines.append(HeaderLine(text=text.strip(), bold=bold, color=color, size=int(size)))
+
+    st.markdown("**Strip under the header (optional, up to 3 items)**")
+    strip_items = [
+        col.text_input(f"Item {i + 1}", key=f"strip_{i}").strip()
+        for i, col in enumerate(st.columns(3))
+    ]
+    strip_items = [s for s in strip_items if s]
+    strip_color = st.color_picker("Strip text color", "#0070C0", key="strip_color")
     remember = st.checkbox("Remember this header for next time", value=True)
 
-    logo_b64 = None
-    if logo_file is not None:
-        try:
-            logo_b64 = prepare_logo(logo_file.getvalue())
-        except Exception:
-            st.error("Could not read that image. Please upload a valid PNG or JPG.")
-
     candidate = Header(
-        lines=[ln.strip() for ln in lines_text.splitlines() if ln.strip()],
-        logo_b64=logo_b64,
+        left_logo_b64=left_b64,
+        right_logo_b64=right_b64,
+        lines=lines,
+        strip=strip_items,
+        strip_color=strip_color,
     )
     if not candidate.is_empty:
         header = candidate
@@ -77,10 +125,7 @@ with st.expander("Save or load a header file"):
     saved = st.session_state["saved_header"]
     if saved is not None:
         st.download_button(
-            "Download saved header",
-            saved.model_dump_json(),
-            "repogen_header.json",
-            "application/json",
+            "Download saved header", saved.model_dump_json(), "repogen_header.json", "application/json"
         )
     else:
         st.caption("Create a header with 'Remember' ticked to enable downloading it.")
@@ -98,6 +143,19 @@ with st.expander("Save or load a header file"):
 
 st.divider()
 
+# ---------------- Report length ----------------
+st.subheader("Report length")
+length_choice = st.selectbox("Total words in the report body", list(PRESETS) + ["Custom"], index=1)
+if length_choice == "Custom":
+    w1, w2 = st.columns(2)
+    min_words = int(w1.number_input("Minimum words", min_value=50, max_value=2000, value=200, step=50))
+    max_words = int(w2.number_input("Maximum words", min_value=50, max_value=2000, value=400, step=50))
+else:
+    min_words, max_words = PRESETS[length_choice]
+st.caption("The AI aims for this range; the actual count is shown after generation. Longer reports read better with more highlights.")
+
+st.divider()
+
 # ---------------- Event form ----------------
 with st.form("event_form"):
     event_name = st.text_input("Event name")
@@ -112,27 +170,30 @@ with st.form("event_form"):
     submitted = st.form_submit_button("Generate report")
 
 if submitted:
-    try:
-        event = EventInfo(
-            event_name=event_name,
-            organizer=organizer,
-            event_date=event_date,
-            venue=venue,
-            participants=int(participants),
-            description=description,
-            highlights=[h.strip() for h in highlights_raw.splitlines() if h.strip()],
-            tone=tone,
-        )
-        with st.spinner("Writing your report..."):
-            report = generate_report(event)
-        st.session_state["report"] = report
-        for i, s in enumerate(report["sections"]):
-            st.session_state[f"sec_{i}"] = s["text"]
-    except ValidationError as err:
-        for e in err.errors():
-            st.error(f"{e['loc'][0]}: {e['msg']}")
-    except Exception as err:
-        st.error(f"Could not generate the report: {err}")
+    if min_words >= max_words:
+        st.error("Minimum words must be smaller than maximum words.")
+    else:
+        try:
+            event = EventInfo(
+                event_name=event_name,
+                organizer=organizer,
+                event_date=event_date,
+                venue=venue,
+                participants=int(participants),
+                description=description,
+                highlights=[h.strip() for h in highlights_raw.splitlines() if h.strip()],
+                tone=tone,
+            )
+            with st.spinner("Writing your report..."):
+                report = generate_report(event, min_words, max_words)
+            st.session_state["report"] = report
+            for i, s in enumerate(report["sections"]):
+                st.session_state[f"sec_{i}"] = s["text"]
+        except ValidationError as err:
+            for e in err.errors():
+                st.error(f"{e['loc'][0]}: {e['msg']}")
+        except Exception as err:
+            st.error(f"Could not generate the report: {err}")
 
 if "report" in st.session_state:
     report = st.session_state["report"]
@@ -145,10 +206,9 @@ if "report" in st.session_state:
     for i, s in enumerate(report["sections"]):
         s["text"] = st.text_area(s["heading"], key=f"sec_{i}", height=160)
 
-    if header is None:
-        st.caption("Exporting without a header.")
-    else:
-        st.caption("Exporting with the header shown above.")
+    total = sum(len(s["text"].split()) for s in report["sections"])
+    st.caption(f"Total words in the report body: {total}")
+    st.caption("Exporting without a header." if header is None else "Exporting with the header shown above.")
 
     c1, c2 = st.columns(2)
     c1.download_button(
