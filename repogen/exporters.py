@@ -15,12 +15,15 @@ from reportlab.lib.styles import ParagraphStyle, getSampleStyleSheet
 from reportlab.platypus import Image, Paragraph, SimpleDocTemplate, Spacer, Table, TableStyle
 
 from .header import Header
+from .photos import Photo
 
 MARGIN_IN = 0.8
 CONTENT_W_IN = 8.27 - 2 * MARGIN_IN  # A4 width minus margins
 SIDE_W_IN = 1.25
 LOGO_MAX_W_IN = 1.1
 LOGO_MAX_H_IN = 1.0
+PHOTO_MAX_W_IN = 3.0
+PHOTO_MAX_H_IN = 2.4
 
 
 def clean(text: str) -> str:
@@ -121,8 +124,26 @@ def _docx_header(doc, header: Header) -> None:
 
     placeholder._element.getparent().remove(placeholder._element)
 
-
-def to_docx(report: dict, header: Header | None = None) -> bytes:
+def _docx_photos(doc, photos: list[Photo]) -> None:
+    doc.add_heading("Event Photos", 1)
+    table = doc.add_table(rows=(len(photos) + 1) // 2, cols=2)
+    for idx, ph in enumerate(photos):
+        cell = table.rows[idx // 2].cells[idx % 2]
+        data = ph.image_bytes
+        with PILImage.open(BytesIO(data)) as im:
+            w, h = im.size
+        tw, th = _fit(w, h, PHOTO_MAX_W_IN, PHOTO_MAX_H_IN)
+        p = cell.paragraphs[0]
+        p.alignment = WD_ALIGN_PARAGRAPH.CENTER
+        p.add_run().add_picture(BytesIO(data), width=Inches(tw), height=Inches(th))
+        if ph.caption:
+            cp = cell.add_paragraph(ph.caption)
+            cp.alignment = WD_ALIGN_PARAGRAPH.CENTER
+            cp.runs[0].italic = True
+            cp.runs[0].font.size = Pt(10)
+        cell.add_paragraph()  # spacing below each photo
+        
+def to_docx(report: dict, header: Header | None = None, photos: list[Photo] | None = None) -> bytes:
     doc = Document()
     section = doc.sections[0]
     section.page_width = Mm(210)
@@ -143,6 +164,8 @@ def to_docx(report: dict, header: Header | None = None) -> bytes:
         for para in s["text"].split("\n\n"):
             if para.strip():
                 doc.add_paragraph(para.strip())
+    if photos:
+        _docx_photos(doc, photos)
     buf = BytesIO()
     doc.save(buf)
     return buf.getvalue()
@@ -213,8 +236,35 @@ def _pdf_header_flowables(header: Header, content_w: float) -> list:
         items.append(rule)
     return items
 
+    def _pdf_photos(photos: list[Photo], styles, content_w: float) -> list:
+    caption_style = ParagraphStyle(
+        "photo_caption", parent=styles["Normal"], alignment=TA_CENTER,
+        fontName="Helvetica-Oblique", fontSize=9,
+    )
+    cells = []
+    for ph in photos:
+        data = ph.image_bytes
+        with PILImage.open(BytesIO(data)) as im:
+            w, h = im.size
+        tw, th = _fit(w, h, PHOTO_MAX_W_IN * 72, PHOTO_MAX_H_IN * 72)
+        img = Image(BytesIO(data), width=tw, height=th)
+        img.hAlign = "CENTER"
+        cell = [img]
+        if ph.caption:
+            cell.append(Paragraph(escape(clean(ph.caption)), caption_style))
+        cells.append(cell)
+    if len(cells) % 2:
+        cells.append("")
+    rows = [cells[i:i + 2] for i in range(0, len(cells), 2)]
+    table = Table(rows, colWidths=[content_w / 2] * 2)
+    table.setStyle(TableStyle([
+        ("ALIGN", (0, 0), (-1, -1), "CENTER"),
+        ("VALIGN", (0, 0), (-1, -1), "TOP"),
+        ("BOTTOMPADDING", (0, 0), (-1, -1), 12),
+    ]))
+    return [Paragraph("Event Photos", styles["Heading2"]), table]
 
-def to_pdf(report: dict, header: Header | None = None) -> bytes:
+def to_pdf(report: dict, header: Header | None = None, photos: list[Photo] | None = None) -> bytes:
     buf = BytesIO()
     margin = MARGIN_IN * 72
     content_w = A4[0] - 2 * margin
@@ -243,7 +293,9 @@ def to_pdf(report: dict, header: Header | None = None) -> bytes:
             if para.strip():
                 story.append(Paragraph(escape(clean(para.strip())), styles["BodyText"]))
                 story.append(Spacer(1, 8))
-
+    if photos:
+        story += _pdf_photos(photos, styles, content_w)
+        
     def paint(canv, doc):
         canv.saveState()
         y = A4[1] - top_pad
