@@ -6,6 +6,7 @@ from pydantic import ValidationError
 from repogen.exporters import to_docx, to_pdf
 from repogen.generator import generate_report
 from repogen.header import Header, HeaderLine, prepare_logo
+from repogen.photos import Photo, prepare_photo
 from repogen.schemas import EventInfo
 
 st.set_page_config(page_title="RepoGen", page_icon="📝", layout="centered")
@@ -156,6 +157,38 @@ st.caption("The AI aims for this range; the actual count is shown after generati
 
 st.divider()
 
+# ---------------- Photos ----------------
+st.subheader("Photos (optional)")
+MAX_PHOTOS = 8
+MAX_FILE_MB = 8
+
+photo_files = st.file_uploader(
+    f"Upload event photos (PNG or JPG, up to {MAX_PHOTOS})",
+    type=["png", "jpg", "jpeg"],
+    accept_multiple_files=True,
+    key="photos",
+)
+if len(photo_files) > MAX_PHOTOS:
+    st.warning(f"Only the first {MAX_PHOTOS} photos will be used.")
+    photo_files = photo_files[:MAX_PHOTOS]
+
+photos = []
+for i, f in enumerate(photo_files):
+    if f.size > MAX_FILE_MB * 1024 * 1024:
+        st.error(f"{f.name} is larger than {MAX_FILE_MB} MB and was skipped.")
+        continue
+    try:
+        b64 = prepare_photo(f.getvalue())
+    except Exception:
+        st.error(f"Could not read {f.name}. Please upload a valid PNG or JPG.")
+        continue
+    img_col, cap_col = st.columns([1, 3])
+    img_col.image(f.getvalue(), width=110)
+    caption = cap_col.text_input("Caption (optional)", key=f"cap_{i}_{f.name}")
+    photos.append(Photo(image_b64=b64, caption=caption.strip()))
+
+st.divider()
+
 # ---------------- Event form ----------------
 with st.form("event_form"):
     event_name = st.text_input("Event name")
@@ -209,12 +242,14 @@ if "report" in st.session_state:
     total = sum(len(s["text"].split()) for s in report["sections"])
     st.caption(f"Total words in the report body: {total}")
     st.caption("Exporting without a header." if header is None else "Exporting with the header shown above.")
+    if photos:
+        st.caption(f"{len(photos)} photo(s) will be added at the end of the report.")
 
     c1, c2 = st.columns(2)
     c1.download_button(
         "⬇️ Download DOCX",
-        to_docx(report, header),
+        to_docx(report, header, photos),
         "report.docx",
         "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
     )
-    c2.download_button("⬇️ Download PDF", to_pdf(report, header), "report.pdf", "application/pdf")
+    c2.download_button("⬇️ Download PDF", to_pdf(report, header, photos), "report.pdf", "application/pdf")
