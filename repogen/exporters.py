@@ -124,6 +124,7 @@ def _docx_header(doc, header: Header) -> None:
 
     placeholder._element.getparent().remove(placeholder._element)
 
+
 def _docx_photos(doc, photos: list[Photo]) -> None:
     doc.add_heading("Event Photos", 1)
     table = doc.add_table(rows=(len(photos) + 1) // 2, cols=2)
@@ -142,7 +143,8 @@ def _docx_photos(doc, photos: list[Photo]) -> None:
             cp.runs[0].italic = True
             cp.runs[0].font.size = Pt(10)
         cell.add_paragraph()  # spacing below each photo
-        
+
+
 def to_docx(report: dict, header: Header | None = None, photos: list[Photo] | None = None) -> bytes:
     doc = Document()
     section = doc.sections[0]
@@ -236,7 +238,8 @@ def _pdf_header_flowables(header: Header, content_w: float) -> list:
         items.append(rule)
     return items
 
-    def _pdf_photos(photos: list[Photo], styles, content_w: float) -> list:
+
+def _pdf_photos(photos: list[Photo], styles, content_w: float) -> list:
     caption_style = ParagraphStyle(
         "photo_caption", parent=styles["Normal"], alignment=TA_CENTER,
         fontName="Helvetica-Oblique", fontSize=9,
@@ -263,6 +266,7 @@ def _pdf_header_flowables(header: Header, content_w: float) -> list:
         ("BOTTOMPADDING", (0, 0), (-1, -1), 12),
     ]))
     return [Paragraph("Event Photos", styles["Heading2"]), table]
+
 
 def to_pdf(report: dict, header: Header | None = None, photos: list[Photo] | None = None) -> bytes:
     buf = BytesIO()
@@ -295,7 +299,7 @@ def to_pdf(report: dict, header: Header | None = None, photos: list[Photo] | Non
                 story.append(Spacer(1, 8))
     if photos:
         story += _pdf_photos(photos, styles, content_w)
-        
+
     def paint(canv, doc):
         canv.saveState()
         y = A4[1] - top_pad
